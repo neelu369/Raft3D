@@ -1,10 +1,219 @@
+// // package main
+
+// // import (
+// // 	"fmt"
+// // 	"log"
+// // 	"net/http"
+// // 	"os"
+// // 	"sync"
+// // 	"time"
+
+// // 	"github.com/hashicorp/raft"
+// // 	"github.com/hashicorp/raft-boltdb"
+// // )
+
+// // // Mutex for HTTP request safety
+// // var mu sync.Mutex
+
+// // // RaftNode wraps the Raft instance and FSM
+// // type raftNode struct {
+// // 	raft *raft.Raft
+// // 	fsm  *RaftFSM
+// // }
+
+// // // Create a new Raft Node
+// // func newRaftNode(dataDir string, id string, peers []raft.Server) (*raftNode, error) {
+// // 	config := raft.DefaultConfig()
+// // 	config.LocalID = raft.ServerID(id)
+
+// // 	// Log and stable storage
+// // 	store, err := raftboltdb.NewBoltStore(dataDir + "/raft.db")
+// // 	if err != nil {
+// // 		return nil, err
+// // 	}
+
+// // 	// Snapshot storage
+// // 	snapshots, err := raft.NewFileSnapshotStore(dataDir, 1, os.Stderr)
+// // 	if err != nil {
+// // 		return nil, err
+// // 	}
+
+// // 	// Raft TCP transport
+// // 	addr := "127.0.0.1:12000"
+// // 	transport, err := raft.NewTCPTransport(addr, nil, 3, 10*time.Second, os.Stderr)
+// // 	if err != nil {
+// // 		return nil, err
+// // 	}
+
+// // 	// Initialize FSM
+// // 	fsmInstance := NewFSM()
+
+// // 	// Initialize Raft
+// // 	raftInstance, err := raft.NewRaft(config, fsmInstance, store, store, snapshots, transport)
+// // 	if err != nil {
+// // 		return nil, err
+// // 	}
+
+// // 	// Bootstrap with initial config
+// // 	configuration := raft.Configuration{Servers: peers}
+// // 	raftInstance.BootstrapCluster(configuration)
+
+// // 	return &raftNode{raft: raftInstance, fsm: fsmInstance}, nil
+// // }
+
+// // var node *raftNode
+
+// // // Simple root handler
+// // func handler(w http.ResponseWriter, r *http.Request) {
+// // 	fmt.Fprintln(w, "Raft3D Node is running!")
+// // }
+
+// // func main() {
+// // 	// Define cluster members (single-node for now)
+// // 	peers := []raft.Server{
+// // 		{ID: "node1", Address: "127.0.0.1:12000"},
+// // 	}
+
+// // 	// Create the Raft node
+// // 	var err error
+// // 	node, err = newRaftNode("./data", "node1", peers)
+// // 	if err != nil {
+// // 		log.Fatal("Failed to create Raft node:", err)
+// // 	}
+
+// // 	// Register HTTP endpoints
+// // 	http.HandleFunc("/", handler)
+
+// // 	fmt.Println("Starting HTTP Server on port 8080...")
+// // 	err = http.ListenAndServe(":8080", nil)
+// // 	if err != nil {
+// // 		log.Fatalf("Failed to start HTTP server: %v", err)
+// // 	}
+// // }
+
+
+
+
+
+
+
+
+// package main
+
+// import (
+// 	"flag"
+// 	"fmt"
+// 	"log"
+// 	"net/http"
+// 	"os"
+// 	"sync"
+// 	"time"
+
+// 	"github.com/hashicorp/raft"
+// 	"github.com/hashicorp/raft-boltdb"
+// )
+
+// var mu sync.Mutex
+
+// type raftNode struct {
+// 	raft *raft.Raft
+// 	fsm  *RaftFSM
+// }
+
+// var node *raftNode
+
+// func newRaftNode(id, raftAddr, dataDir string, bootstrap bool) (*raftNode, error) {
+// 	config := raft.DefaultConfig()
+// 	config.LocalID = raft.ServerID(id)
+
+// 	// Log store & stable store
+// 	store, err := raftboltdb.NewBoltStore(dataDir + "/raft.db")
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	// Snapshot store
+// 	snapshots, err := raft.NewFileSnapshotStore(dataDir, 2, os.Stderr)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	// Transport layer
+// 	transport, err := raft.NewTCPTransport(raftAddr, nil, 3, 10*time.Second, os.Stderr)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	// FSM
+// 	fsm := NewFSM()
+
+// 	// Create Raft instance
+// 	// Create Raft instance
+// 	r, err := raft.NewRaft(config, fsm, store, store, snapshots, transport)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	if bootstrap {
+// 		config := raft.Configuration{
+// 			Servers: []raft.Server{
+// 				{
+// 					ID:      raft.ServerID(id),
+// 					Address: transport.LocalAddr(),
+// 				},
+// 			},
+// 		}
+// 		r.BootstrapCluster(config)
+// 	}
+
+// 	return &raftNode{raft: r, fsm: fsm}, nil
+
+// }
+
+// // Root handler
+// func handler(w http.ResponseWriter, r *http.Request) {
+// 	fmt.Fprintln(w, "Raft3D Node is running!")
+// }
+
+// func main() {
+// 	// --- Parse CLI flags ---
+// 	id := flag.String("id", "node1", "Unique ID of this node")
+// 	raftPort := flag.String("raftPort", "12000", "Raft communication port")
+// 	httpPort := flag.String("httpPort", "8080", "HTTP server port")
+// 	dataDir := flag.String("dataDir", "./data", "Directory to store Raft logs")
+// 	bootstrap := flag.Bool("bootstrap", false, "Bootstrap this node as the initial cluster leader")
+// 	flag.Parse()
+
+// 	raftAddr := fmt.Sprintf("127.0.0.1:%s", *raftPort)
+// 	fmt.Printf("Starting node %s with Raft Addr %s and HTTP Port %s\n", *id, raftAddr, *httpPort)
+
+// 	var err error
+// 	node, err = newRaftNode(*id, raftAddr, *dataDir, *bootstrap)
+// 	if err != nil {
+// 		log.Fatalf("Failed to start raft node: %v", err)
+// 	}
+
+// 	// Register basic HTTP endpoint
+// 	http.HandleFunc("/", handler)
+
+// 	fmt.Printf("HTTP server starting on :%s ...\n", *httpPort)
+// 	err = http.ListenAndServe(":"+*httpPort, nil)
+// 	if err != nil {
+// 		log.Fatalf("HTTP server failed: %v", err)
+// 	}
+// }
+
+
+
+
+
+
 package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
-	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -15,156 +224,206 @@ import (
 	"github.com/hashicorp/raft-boltdb"
 )
 
-// Mutex for thread safety
 var mu sync.Mutex
 
-// FSM (Finite State Machine) for Raft state management
-type fsm struct {
-	data map[string]string
-	mu   sync.Mutex
-}
-
-// Apply log entry to the FSM
-func (f *fsm) Apply(log *raft.Log) interface{} {
-	var command map[string]string
-	if err := json.Unmarshal(log.Data, &command); err != nil {
-		return err
-	}
-
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	for k, v := range command {
-		f.data[k] = v
-	}
-	return nil
-}
-
-// Snapshot (not needed for simple KV store)
-func (f *fsm) Snapshot() (raft.FSMSnapshot, error) {
-	return nil, nil
-}
-
-// Restore state from snapshot (not needed here)
-func (f *fsm) Restore(rc io.ReadCloser) error {
-	defer rc.Close()
-	return nil
-}
-
-// RaftNode structure
 type raftNode struct {
 	raft *raft.Raft
-	fsm  *fsm
+	fsm  *RaftFSM
 }
 
-// Create a new Raft Node
-func newRaftNode(dataDir string, id string, peers []raft.Server) (*raftNode, error) {
+var node *raftNode
+
+func newRaftNode(id, raftAddr, dataDir string, bootstrap bool) (*raftNode, error) {
 	config := raft.DefaultConfig()
 	config.LocalID = raft.ServerID(id)
 
-	// Storage for Raft logs
+	// Log + stable store
 	store, err := raftboltdb.NewBoltStore(dataDir + "/raft.db")
 	if err != nil {
 		return nil, err
 	}
 
-	// Snapshot storage
-	snapshots, err := raft.NewFileSnapshotStore(dataDir, 1, os.Stderr)
+	// Snapshot store
+	snapshots, err := raft.NewFileSnapshotStore(dataDir, 2, os.Stderr)
 	if err != nil {
 		return nil, err
 	}
 
-	// Transport setup
-	addr := "127.0.0.1:12000"
-	transport, err := raft.NewTCPTransport(addr, nil, 3, 10*time.Second, os.Stderr)
+	// TCP transport
+	transport, err := raft.NewTCPTransport(raftAddr, nil, 3, 10*time.Second, os.Stderr)
 	if err != nil {
 		return nil, err
 	}
 
-	// Initialize FSM
-	fsmInstance := &fsm{data: make(map[string]string)}
+	// FSM
+	fsm := NewFSM()
 
-	// Initialize Raft
-	raftInstance, err := raft.NewRaft(config, fsmInstance, store, store, snapshots, transport)
+	// Create raft instance
+	r, err := raft.NewRaft(config, fsm, store, store, snapshots, transport)
 	if err != nil {
 		return nil, err
 	}
 
-	// Bootstrap cluster if needed
-	configuration := raft.Configuration{Servers: peers}
-	raftInstance.BootstrapCluster(configuration)
-
-	return &raftNode{raft: raftInstance, fsm: fsmInstance}, nil
-}
-
-var node *raftNode
-
-// HTTP handler to set key-value pairs
-func setHandler(w http.ResponseWriter, r *http.Request) {
-	mu.Lock()
-	defer mu.Unlock()
-
-	body, _ := ioutil.ReadAll(r.Body)
-	var data map[string]string
-	json.Unmarshal(body, &data)
-
-	// Serialize and commit the command to Raft
-	command, _ := json.Marshal(data)
-	future := node.raft.Apply(command, 5*time.Second)
-	if err := future.Error(); err != nil {
-		http.Error(w, "Failed to apply command", http.StatusInternalServerError)
-		return
+	if bootstrap {
+		cfg := raft.Configuration{
+			Servers: []raft.Server{
+				{
+					ID:      raft.ServerID(id),
+					Address: transport.LocalAddr(),
+				},
+			},
+		}
+		r.BootstrapCluster(cfg)
 	}
 
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintln(w, "Key-Value stored successfully")
+	return &raftNode{raft: r, fsm: fsm}, nil
 }
 
-// HTTP handler to get values by key
-func getHandler(w http.ResponseWriter, r *http.Request) {
-	mu.Lock()
-	defer mu.Unlock()
-
-	key := r.URL.Query().Get("key")
-	node.fsm.mu.Lock()
-	value, exists := node.fsm.data[key]
-	node.fsm.mu.Unlock()
-
-	if !exists {
-		http.Error(w, "Key not found", http.StatusNotFound)
-		return
-	}
-
-	response := map[string]string{"key": key, "value": value}
-	json.NewEncoder(w).Encode(response)
-}
-
-// Simple handler for the root path
+// Root test handler
 func handler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintln(w, "Hello, RAFT!")
+	fmt.Fprintln(w, "Raft3D Node is running!")
+}
+
+// /join handler for adding followers dynamically
+func joinHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	type JoinRequest struct {
+		ID      string `json:"id"`
+		Address string `json:"address"`
+	}
+
+	var req JoinRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	configFuture := node.raft.GetConfiguration()
+	if err := configFuture.Error(); err != nil {
+		http.Error(w, "Failed to get Raft config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Check if already added
+	for _, srv := range configFuture.Configuration().Servers {
+		if srv.ID == raft.ServerID(req.ID) || srv.Address == raft.ServerAddress(req.Address) {
+			fmt.Fprintf(w, "Node %s at %s already joined\n", req.ID, req.Address)
+			return
+		}
+	}
+
+	future := node.raft.AddVoter(raft.ServerID(req.ID), raft.ServerAddress(req.Address), 0, 0)
+	if err := future.Error(); err != nil {
+		http.Error(w, "Failed to add voter: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	fmt.Fprintf(w, "Node %s at %s joined successfully!\n", req.ID, req.Address)
+}
+
+
+// POST /printers
+func addPrinterHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var printer Printer
+	if err := json.NewDecoder(r.Body).Decode(&printer); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	data, err := json.Marshal(printer)
+	if err != nil {
+		http.Error(w, "Failed to serialize printer", http.StatusInternalServerError)
+		return
+	}
+
+	cmd := Command{
+		Op:   "add_printer",
+		Data: data,
+	}
+
+	cmdBytes, err := json.Marshal(cmd)
+	if err != nil {
+		http.Error(w, "Failed to serialize command", http.StatusInternalServerError)
+		return
+	}
+
+	// Submit command via Raft
+	applyFuture := node.raft.Apply(cmdBytes, 5*time.Second)
+	if err := applyFuture.Error(); err != nil {
+		http.Error(w, "Raft apply failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	fmt.Fprintf(w, "Printer %s added successfully\n", printer.ID)
+}
+
+// GET /printers
+func getPrintersHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	node.fsm.mu.Lock()
+	defer node.fsm.mu.Unlock()
+
+	printers := make([]Printer, 0, len(node.fsm.Printers))
+	for _, p := range node.fsm.Printers {
+		printers = append(printers, p)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(printers)
+}
+
+
+func leaderHandler(w http.ResponseWriter, r *http.Request) {
+	leader := node.raft.Leader()
+	if leader == "" {
+		http.Error(w, "No leader elected yet", http.StatusServiceUnavailable)
+		return
+	}
+	fmt.Fprintf(w, "%s\n", leader)
 }
 
 func main() {
-	peers := []raft.Server{
-		{ID: "node1", Address: "127.0.0.1:12000"},
-	}
+	id := flag.String("id", "node1", "Unique ID of this node")
+	raftPort := flag.String("raftPort", "12000", "Raft communication port")
+	httpPort := flag.String("httpPort", "8080", "HTTP server port")
+	dataDir := flag.String("dataDir", "./data", "Directory to store Raft logs")
+	bootstrap := flag.Bool("bootstrap", false, "Bootstrap this node as the initial cluster leader")
+	flag.Parse()
 
-	// Initialize Raft Node
+	raftAddr := fmt.Sprintf("127.0.0.1:%s", *raftPort)
+	fmt.Printf("Starting node %s with Raft Addr %s and HTTP Port %s\n", *id, raftAddr, *httpPort)
+
 	var err error
-	node, err = newRaftNode("./data", "node1", peers)
+	node, err = newRaftNode(*id, raftAddr, *dataDir, *bootstrap)
 	if err != nil {
-		log.Fatal("Failed to create Raft node:", err)
+		log.Fatalf("Failed to start raft node: %v", err)
 	}
 
-	// HTTP server setup
-	http.HandleFunc("/", handler)  // Root endpoint
-	http.HandleFunc("/set", setHandler)
-	http.HandleFunc("/get", getHandler)
+	http.HandleFunc("/", handler)
+	http.HandleFunc("/join", joinHandler)
+	http.HandleFunc("/printers", addPrinterHandler) // POST
+	http.HandleFunc("/get_printers", getPrintersHandler) // GET
+	http.HandleFunc("/leader", leaderHandler)
 
-	fmt.Println("Starting HTTP Server on port 8080...")
-	
-	// Explicitly log any error that occurs
-	err = http.ListenAndServe(":8080", nil)
+
+
+	fmt.Printf("HTTP server starting on :%s ...\n", *httpPort)
+	err = http.ListenAndServe(":"+*httpPort, nil)
 	if err != nil {
-		log.Fatalf("Failed to start HTTP server: %v", err)
+		log.Fatalf("HTTP server failed: %v", err)
 	}
 }
