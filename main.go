@@ -1,213 +1,3 @@
-// // package main
-
-// // import (
-// // 	"fmt"
-// // 	"log"
-// // 	"net/http"
-// // 	"os"
-// // 	"sync"
-// // 	"time"
-
-// // 	"github.com/hashicorp/raft"
-// // 	"github.com/hashicorp/raft-boltdb"
-// // )
-
-// // // Mutex for HTTP request safety
-// // var mu sync.Mutex
-
-// // // RaftNode wraps the Raft instance and FSM
-// // type raftNode struct {
-// // 	raft *raft.Raft
-// // 	fsm  *RaftFSM
-// // }
-
-// // // Create a new Raft Node
-// // func newRaftNode(dataDir string, id string, peers []raft.Server) (*raftNode, error) {
-// // 	config := raft.DefaultConfig()
-// // 	config.LocalID = raft.ServerID(id)
-
-// // 	// Log and stable storage
-// // 	store, err := raftboltdb.NewBoltStore(dataDir + "/raft.db")
-// // 	if err != nil {
-// // 		return nil, err
-// // 	}
-
-// // 	// Snapshot storage
-// // 	snapshots, err := raft.NewFileSnapshotStore(dataDir, 1, os.Stderr)
-// // 	if err != nil {
-// // 		return nil, err
-// // 	}
-
-// // 	// Raft TCP transport
-// // 	addr := "127.0.0.1:12000"
-// // 	transport, err := raft.NewTCPTransport(addr, nil, 3, 10*time.Second, os.Stderr)
-// // 	if err != nil {
-// // 		return nil, err
-// // 	}
-
-// // 	// Initialize FSM
-// // 	fsmInstance := NewFSM()
-
-// // 	// Initialize Raft
-// // 	raftInstance, err := raft.NewRaft(config, fsmInstance, store, store, snapshots, transport)
-// // 	if err != nil {
-// // 		return nil, err
-// // 	}
-
-// // 	// Bootstrap with initial config
-// // 	configuration := raft.Configuration{Servers: peers}
-// // 	raftInstance.BootstrapCluster(configuration)
-
-// // 	return &raftNode{raft: raftInstance, fsm: fsmInstance}, nil
-// // }
-
-// // var node *raftNode
-
-// // // Simple root handler
-// // func handler(w http.ResponseWriter, r *http.Request) {
-// // 	fmt.Fprintln(w, "Raft3D Node is running!")
-// // }
-
-// // func main() {
-// // 	// Define cluster members (single-node for now)
-// // 	peers := []raft.Server{
-// // 		{ID: "node1", Address: "127.0.0.1:12000"},
-// // 	}
-
-// // 	// Create the Raft node
-// // 	var err error
-// // 	node, err = newRaftNode("./data", "node1", peers)
-// // 	if err != nil {
-// // 		log.Fatal("Failed to create Raft node:", err)
-// // 	}
-
-// // 	// Register HTTP endpoints
-// // 	http.HandleFunc("/", handler)
-
-// // 	fmt.Println("Starting HTTP Server on port 8080...")
-// // 	err = http.ListenAndServe(":8080", nil)
-// // 	if err != nil {
-// // 		log.Fatalf("Failed to start HTTP server: %v", err)
-// // 	}
-// // }
-
-
-
-
-
-
-
-
-// package main
-
-// import (
-// 	"flag"
-// 	"fmt"
-// 	"log"
-// 	"net/http"
-// 	"os"
-// 	"sync"
-// 	"time"
-
-// 	"github.com/hashicorp/raft"
-// 	"github.com/hashicorp/raft-boltdb"
-// )
-
-// var mu sync.Mutex
-
-// type raftNode struct {
-// 	raft *raft.Raft
-// 	fsm  *RaftFSM
-// }
-
-// var node *raftNode
-
-// func newRaftNode(id, raftAddr, dataDir string, bootstrap bool) (*raftNode, error) {
-// 	config := raft.DefaultConfig()
-// 	config.LocalID = raft.ServerID(id)
-
-// 	// Log store & stable store
-// 	store, err := raftboltdb.NewBoltStore(dataDir + "/raft.db")
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	// Snapshot store
-// 	snapshots, err := raft.NewFileSnapshotStore(dataDir, 2, os.Stderr)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	// Transport layer
-// 	transport, err := raft.NewTCPTransport(raftAddr, nil, 3, 10*time.Second, os.Stderr)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	// FSM
-// 	fsm := NewFSM()
-
-// 	// Create Raft instance
-// 	// Create Raft instance
-// 	r, err := raft.NewRaft(config, fsm, store, store, snapshots, transport)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	if bootstrap {
-// 		config := raft.Configuration{
-// 			Servers: []raft.Server{
-// 				{
-// 					ID:      raft.ServerID(id),
-// 					Address: transport.LocalAddr(),
-// 				},
-// 			},
-// 		}
-// 		r.BootstrapCluster(config)
-// 	}
-
-// 	return &raftNode{raft: r, fsm: fsm}, nil
-
-// }
-
-// // Root handler
-// func handler(w http.ResponseWriter, r *http.Request) {
-// 	fmt.Fprintln(w, "Raft3D Node is running!")
-// }
-
-// func main() {
-// 	// --- Parse CLI flags ---
-// 	id := flag.String("id", "node1", "Unique ID of this node")
-// 	raftPort := flag.String("raftPort", "12000", "Raft communication port")
-// 	httpPort := flag.String("httpPort", "8080", "HTTP server port")
-// 	dataDir := flag.String("dataDir", "./data", "Directory to store Raft logs")
-// 	bootstrap := flag.Bool("bootstrap", false, "Bootstrap this node as the initial cluster leader")
-// 	flag.Parse()
-
-// 	raftAddr := fmt.Sprintf("127.0.0.1:%s", *raftPort)
-// 	fmt.Printf("Starting node %s with Raft Addr %s and HTTP Port %s\n", *id, raftAddr, *httpPort)
-
-// 	var err error
-// 	node, err = newRaftNode(*id, raftAddr, *dataDir, *bootstrap)
-// 	if err != nil {
-// 		log.Fatalf("Failed to start raft node: %v", err)
-// 	}
-
-// 	// Register basic HTTP endpoint
-// 	http.HandleFunc("/", handler)
-
-// 	fmt.Printf("HTTP server starting on :%s ...\n", *httpPort)
-// 	err = http.ListenAndServe(":"+*httpPort, nil)
-// 	if err != nil {
-// 		log.Fatalf("HTTP server failed: %v", err)
-// 	}
-// }
-
-
-
-
-
-
 package main
 
 import (
@@ -219,6 +9,8 @@ import (
 	"os"
 	"sync"
 	"time"
+	// "strconv"
+	// "strings"
 
 	"github.com/hashicorp/raft"
 	"github.com/hashicorp/raft-boltdb"
@@ -396,6 +188,40 @@ func leaderHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "%s\n", leader)
 }
 
+func viewStats(w http.ResponseWriter, r *http.Request) {
+    if r.Method != http.MethodGet {
+        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+        return
+    }
+
+    leader := node.raft.Leader()
+    if leader == "" {
+        http.Error(w, "No leader elected yet", http.StatusServiceUnavailable)
+        return
+    }
+    
+    // Get basic Raft status information
+    state := node.raft.State()
+    stats := node.raft.Stats()
+    
+    type LeaderInfo struct {
+        Leader      string `json:"leader"`
+        CurrentTerm string `json:"term"`
+        State       string `json:"state"`
+        IsLeader    bool   `json:"is_leader"`
+    }
+    
+    response := LeaderInfo{
+        Leader:      string(leader),
+        CurrentTerm: stats["term"],
+        State:       state.String(),
+        IsLeader:    (state == raft.Leader),
+    }
+    
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(response)
+}
+
 func main() {
 	id := flag.String("id", "node1", "Unique ID of this node")
 	raftPort := flag.String("raftPort", "12000", "Raft communication port")
@@ -417,8 +243,8 @@ func main() {
 	http.HandleFunc("/join", joinHandler)
 	http.HandleFunc("/printers", addPrinterHandler) // POST
 	http.HandleFunc("/get_printers", getPrintersHandler) // GET
+	http.HandleFunc("/view_stats", viewStats)
 	http.HandleFunc("/leader", leaderHandler)
-
 
 
 	fmt.Printf("HTTP server starting on :%s ...\n", *httpPort)
