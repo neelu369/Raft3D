@@ -10,7 +10,7 @@ import (
 )
 
 type RaftFSM struct {
-	mu       sync.Mutex
+	mu        sync.Mutex
 	Printers  map[string]Printer
 	Filaments map[string]Filament
 	PrintJobs map[string]PrintJob
@@ -111,4 +111,3 @@ func (s *fsmSnapshot) Persist(sink raft.SnapshotSink) error {
 }
 
 func (s *fsmSnapshot) Release() {}
-

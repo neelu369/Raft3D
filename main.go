@@ -9,11 +9,12 @@ import (
 	"os"
 	"sync"
 	"time"
+
 	// "strconv"
 	// "strings"
 
 	"github.com/hashicorp/raft"
-	"github.com/hashicorp/raft-boltdb"
+	raftboltdb "github.com/hashicorp/raft-boltdb"
 )
 
 var mu sync.Mutex
@@ -117,7 +118,6 @@ func joinHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Node %s at %s joined successfully!\n", req.ID, req.Address)
 }
 
-
 // POST /printers
 func addPrinterHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -178,7 +178,6 @@ func getPrintersHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(printers)
 }
 
-
 func leaderHandler(w http.ResponseWriter, r *http.Request) {
 	leader := node.raft.Leader()
 	if leader == "" {
@@ -189,37 +188,37 @@ func leaderHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func viewStats(w http.ResponseWriter, r *http.Request) {
-    if r.Method != http.MethodGet {
-        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-        return
-    }
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 
-    leader := node.raft.Leader()
-    if leader == "" {
-        http.Error(w, "No leader elected yet", http.StatusServiceUnavailable)
-        return
-    }
-    
-    // Get basic Raft status information
-    state := node.raft.State()
-    stats := node.raft.Stats()
-    
-    type LeaderInfo struct {
-        Leader      string `json:"leader"`
-        CurrentTerm string `json:"term"`
-        State       string `json:"state"`
-        IsLeader    bool   `json:"is_leader"`
-    }
-    
-    response := LeaderInfo{
-        Leader:      string(leader),
-        CurrentTerm: stats["term"],
-        State:       state.String(),
-        IsLeader:    (state == raft.Leader),
-    }
-    
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(response)
+	leader := node.raft.Leader()
+	if leader == "" {
+		http.Error(w, "No leader elected yet", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Get basic Raft status information
+	state := node.raft.State()
+	stats := node.raft.Stats()
+
+	type LeaderInfo struct {
+		Leader      string `json:"leader"`
+		CurrentTerm string `json:"term"`
+		State       string `json:"state"`
+		IsLeader    bool   `json:"is_leader"`
+	}
+
+	response := LeaderInfo{
+		Leader:      string(leader),
+		CurrentTerm: stats["term"],
+		State:       state.String(),
+		IsLeader:    (state == raft.Leader),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 func main() {
@@ -241,11 +240,10 @@ func main() {
 
 	http.HandleFunc("/", handler)
 	http.HandleFunc("/join", joinHandler)
-	http.HandleFunc("/printers", addPrinterHandler) // POST
+	http.HandleFunc("/printers", addPrinterHandler)      // POST
 	http.HandleFunc("/get_printers", getPrintersHandler) // GET
 	http.HandleFunc("/view_stats", viewStats)
 	http.HandleFunc("/leader", leaderHandler)
-
 
 	fmt.Printf("HTTP server starting on :%s ...\n", *httpPort)
 	err = http.ListenAndServe(":"+*httpPort, nil)
