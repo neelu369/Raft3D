@@ -179,7 +179,8 @@ func joinHandler(w http.ResponseWriter, r *http.Request) {
 // }
 
 func printersHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodPost {
+	switch r.Method {
+	case http.MethodPost:
 		var printer Printer
 		if err := json.NewDecoder(r.Body).Decode(&printer); err != nil {
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
@@ -211,10 +212,22 @@ func printersHandler(w http.ResponseWriter, r *http.Request) {
 
 		w.WriteHeader(http.StatusCreated)
 		fmt.Fprintf(w, "Printer %s added successfully\n", printer.ID)
-		return
-	}
 
-	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	case http.MethodGet:
+		node.fsm.mu.Lock()
+		defer node.fsm.mu.Unlock()
+
+		printers := make([]Printer, 0, len(node.fsm.Printers))
+		for _, p := range node.fsm.Printers {
+			printers = append(printers, p)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(printers)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 func leaderHandler(w http.ResponseWriter, r *http.Request) {
