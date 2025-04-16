@@ -118,64 +118,103 @@ func joinHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Node %s at %s joined successfully!\n", req.ID, req.Address)
 }
 
-// POST /printers
-func addPrinterHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+// // POST /printers
+// func addPrinterHandler(w http.ResponseWriter, r *http.Request) {
+// 	if r.Method != http.MethodPost {
+// 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+// 		return
+// 	}
+
+// 	var printer Printer
+// 	if err := json.NewDecoder(r.Body).Decode(&printer); err != nil {
+// 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+// 		return
+// 	}
+
+// 	data, err := json.Marshal(printer)
+// 	if err != nil {
+// 		http.Error(w, "Failed to serialize printer", http.StatusInternalServerError)
+// 		return
+// 	}
+
+// 	cmd := Command{
+// 		Op:   "add_printer",
+// 		Data: data,
+// 	}
+
+// 	cmdBytes, err := json.Marshal(cmd)
+// 	if err != nil {
+// 		http.Error(w, "Failed to serialize command", http.StatusInternalServerError)
+// 		return
+// 	}
+
+// 	// Submit command via Raft
+// 	applyFuture := node.raft.Apply(cmdBytes, 5*time.Second)
+// 	if err := applyFuture.Error(); err != nil {
+// 		http.Error(w, "Raft apply failed: "+err.Error(), http.StatusInternalServerError)
+// 		return
+// 	}
+
+// 	w.WriteHeader(http.StatusCreated)
+// 	fmt.Fprintf(w, "Printer %s added successfully\n", printer.ID)
+// }
+
+// // GET /printers
+// func getPrintersHandler(w http.ResponseWriter, r *http.Request) {
+// 	if r.Method != http.MethodGet {
+// 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+// 		return
+// 	}
+
+// 	node.fsm.mu.Lock()
+// 	defer node.fsm.mu.Unlock()
+
+// 	printers := make([]Printer, 0, len(node.fsm.Printers))
+// 	for _, p := range node.fsm.Printers {
+// 		printers = append(printers, p)
+// 	}
+
+// 	w.Header().Set("Content-Type", "application/json")
+// 	json.NewEncoder(w).Encode(printers)
+// }
+
+func printersHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		var printer Printer
+		if err := json.NewDecoder(r.Body).Decode(&printer); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+
+		data, err := json.Marshal(printer)
+		if err != nil {
+			http.Error(w, "Failed to serialize printer", http.StatusInternalServerError)
+			return
+		}
+
+		cmd := Command{
+			Op:   "add_printer",
+			Data: data,
+		}
+
+		cmdBytes, err := json.Marshal(cmd)
+		if err != nil {
+			http.Error(w, "Failed to serialize command", http.StatusInternalServerError)
+			return
+		}
+
+		applyFuture := node.raft.Apply(cmdBytes, 5*time.Second)
+		if err := applyFuture.Error(); err != nil {
+			http.Error(w, "Raft apply failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusCreated)
+		fmt.Fprintf(w, "Printer %s added successfully\n", printer.ID)
 		return
 	}
 
-	var printer Printer
-	if err := json.NewDecoder(r.Body).Decode(&printer); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	data, err := json.Marshal(printer)
-	if err != nil {
-		http.Error(w, "Failed to serialize printer", http.StatusInternalServerError)
-		return
-	}
-
-	cmd := Command{
-		Op:   "add_printer",
-		Data: data,
-	}
-
-	cmdBytes, err := json.Marshal(cmd)
-	if err != nil {
-		http.Error(w, "Failed to serialize command", http.StatusInternalServerError)
-		return
-	}
-
-	// Submit command via Raft
-	applyFuture := node.raft.Apply(cmdBytes, 5*time.Second)
-	if err := applyFuture.Error(); err != nil {
-		http.Error(w, "Raft apply failed: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusCreated)
-	fmt.Fprintf(w, "Printer %s added successfully\n", printer.ID)
-}
-
-// GET /printers
-func getPrintersHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	node.fsm.mu.Lock()
-	defer node.fsm.mu.Unlock()
-
-	printers := make([]Printer, 0, len(node.fsm.Printers))
-	for _, p := range node.fsm.Printers {
-		printers = append(printers, p)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(printers)
+	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 }
 
 func leaderHandler(w http.ResponseWriter, r *http.Request) {
@@ -292,8 +331,9 @@ func main() {
 
 	http.HandleFunc("/", handler)
 	http.HandleFunc("/join", joinHandler)
-	http.HandleFunc("/printers", addPrinterHandler)      // POST
-	http.HandleFunc("/get_printers", getPrintersHandler) // GET
+	// http.HandleFunc("/printers", addPrinterHandler)      // POST
+	// http.HandleFunc("/get_printers", getPrintersHandler) // GET
+	http.HandleFunc("/printers", printersHandler)
 	http.HandleFunc("/view_stats", viewStats)
 	http.HandleFunc("/leader", leaderHandler)
 	http.HandleFunc("/filaments", filamentHandler)
