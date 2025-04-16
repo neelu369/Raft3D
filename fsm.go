@@ -44,6 +44,11 @@ func (f *RaftFSM) Apply(logEntry *raft.Log) interface{} {
 		if err := json.Unmarshal(cmd.Data, &printer); err == nil {
 			f.Printers[printer.ID] = printer
 		}
+	case "add_filament":
+		var filament Filament
+		if err := json.Unmarshal(cmd.Data, &filament); err == nil {
+			f.Filaments[filament.ID] = filament
+		}
 	}
 
 	return nil

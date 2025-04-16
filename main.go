@@ -221,6 +221,58 @@ func viewStats(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
+func filamentHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		var filament Filament
+		if err := json.NewDecoder(r.Body).Decode(&filament); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+
+		data, err := json.Marshal(filament)
+		if err != nil {
+			http.Error(w, "Failed to serialize filament", http.StatusInternalServerError)
+			return
+		}
+
+		cmd := Command{
+			Op:   "add_filament",
+			Data: data,
+		}
+
+		cmdBytes, err := json.Marshal(cmd)
+		if err != nil {
+			http.Error(w, "Failed to serialize command", http.StatusInternalServerError)
+			return
+		}
+
+		applyFuture := node.raft.Apply(cmdBytes, 5*time.Second)
+		if err := applyFuture.Error(); err != nil {
+			http.Error(w, "Raft apply failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusCreated)
+		fmt.Fprintf(w, "Filament %s added successfully\n", filament.ID)
+
+	case http.MethodGet:
+		node.fsm.mu.Lock()
+		defer node.fsm.mu.Unlock()
+
+		filaments := make([]Filament, 0, len(node.fsm.Filaments))
+		for _, f := range node.fsm.Filaments {
+			filaments = append(filaments, f)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(filaments)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
 func main() {
 	id := flag.String("id", "node1", "Unique ID of this node")
 	raftPort := flag.String("raftPort", "12000", "Raft communication port")
@@ -244,6 +296,7 @@ func main() {
 	http.HandleFunc("/get_printers", getPrintersHandler) // GET
 	http.HandleFunc("/view_stats", viewStats)
 	http.HandleFunc("/leader", leaderHandler)
+	http.HandleFunc("/filaments", filamentHandler)
 
 	fmt.Printf("HTTP server starting on :%s ...\n", *httpPort)
 	err = http.ListenAndServe(":"+*httpPort, nil)
