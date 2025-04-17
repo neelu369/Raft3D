@@ -9,7 +9,7 @@ import (
 	"os"
 	"sync"
 	"time"
-
+	"github.com/google/uuid"
 	// "strconv"
 	// "strings"
 
@@ -325,6 +325,78 @@ func filamentHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+const raftTimeout = 5 * time.Second
+
+func handlePostPrintJob(raftNode *raft.Raft, fsm *RaftFSM) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var job PrintJob
+		if err := json.NewDecoder(r.Body).Decode(&job); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		if _, ok := fsm.Printers[job.PrinterID]; !ok {
+			http.Error(w, "Invalid printer_id", http.StatusBadRequest)
+			return
+		}
+		filament, ok := fsm.Filaments[job.FilamentID]
+		if !ok {
+			http.Error(w, "Invalid filament_id", http.StatusBadRequest)
+			return
+		}
+
+		usedWeight := 0
+		for _, pj := range fsm.PrintJobs {
+			if pj.FilamentID == job.FilamentID && (pj.Status == "Queued" || pj.Status == "Running") {
+				usedWeight += pj.PrintWeightInGrams
+			}
+		}
+		if job.PrintWeightInGrams > (filament.RemainingWeightInGrams - usedWeight) {
+			http.Error(w, "Not enough filament available", http.StatusBadRequest)
+			return
+		}
+
+		job.Status = "Queued"
+		job.ID = uuid.New().String()
+
+		cmd := Command{
+			Op:   "add_print_job",
+			Data: mustMarshal(job),
+		}
+		if err := applyRaftCommand(raftNode, cmd); err != nil {
+			http.Error(w, "Failed to commit job", http.StatusInternalServerError)
+			return
+		}
+		json.NewEncoder(w).Encode(job)
+	}
+}
+
+func handleGetPrintJobs(fsm *RaftFSM) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var jobs []PrintJob
+		for _, job := range fsm.PrintJobs {
+			jobs = append(jobs, job)
+		}
+		json.NewEncoder(w).Encode(jobs)
+	}
+}
+
+func mustMarshal(v interface{}) []byte {
+	data, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return data
+}
+func applyRaftCommand(r *raft.Raft, cmd Command) error {
+	b, err := json.Marshal(cmd)
+	if err != nil {
+		return err
+	}
+	f := r.Apply(b, raftTimeout)
+	return f.Error()
+}
+
 func main() {
 	id := flag.String("id", "node1", "Unique ID of this node")
 	raftPort := flag.String("raftPort", "12000", "Raft communication port")
@@ -350,6 +422,16 @@ func main() {
 	http.HandleFunc("/view_stats", viewStats)
 	http.HandleFunc("/leader", leaderHandler)
 	http.HandleFunc("/filaments", filamentHandler)
+	http.HandleFunc("/print_jobs", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case "GET":
+			handleGetPrintJobs(node.fsm)(w, r)
+		case "POST":
+			handlePostPrintJob(node.raft, node.fsm)(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
 
 	fmt.Printf("HTTP server starting on :%s ...\n", *httpPort)
 	err = http.ListenAndServe(":"+*httpPort, nil)

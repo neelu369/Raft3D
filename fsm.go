@@ -49,6 +49,13 @@ func (f *RaftFSM) Apply(logEntry *raft.Log) interface{} {
 		if err := json.Unmarshal(cmd.Data, &filament); err == nil {
 			f.Filaments[filament.ID] = filament
 		}
+	case "add_print_job":
+		var job PrintJob
+		if err := json.Unmarshal(cmd.Data, &job); err != nil {
+			return nil
+		}
+		f.PrintJobs[job.ID] = job
+		return nil
 	}
 
 	return nil
