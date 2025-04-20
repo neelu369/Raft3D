@@ -4,12 +4,12 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/google/uuid"
 	"log"
 	"net/http"
 	"os"
 	"sync"
 	"time"
-	"github.com/google/uuid"
 	// "strconv"
 	// "strings"
 
@@ -353,6 +353,10 @@ func handlePostPrintJob(raftNode *raft.Raft, fsm *RaftFSM) http.HandlerFunc {
 		}
 		if job.PrintWeightInGrams > (filament.RemainingWeightInGrams - usedWeight) {
 			http.Error(w, "Not enough filament available", http.StatusBadRequest)
+			return
+		}
+		if job.PrintWeightInGrams <= 0 {
+			http.Error(w, "Print weight must be greater than zero", http.StatusBadRequest)
 			return
 		}
 
