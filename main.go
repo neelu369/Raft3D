@@ -4,15 +4,14 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/google/uuid"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
-	// "strconv"
-	// "strings"
 
+	"github.com/google/uuid"
 	"github.com/hashicorp/raft"
 	raftboltdb "github.com/hashicorp/raft-boltdb"
 )
@@ -117,66 +116,6 @@ func joinHandler(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprintf(w, "Node %s at %s joined successfully!\n", req.ID, req.Address)
 }
-
-// // POST /printers
-// func addPrinterHandler(w http.ResponseWriter, r *http.Request) {
-// 	if r.Method != http.MethodPost {
-// 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-// 		return
-// 	}
-
-// 	var printer Printer
-// 	if err := json.NewDecoder(r.Body).Decode(&printer); err != nil {
-// 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-// 		return
-// 	}
-
-// 	data, err := json.Marshal(printer)
-// 	if err != nil {
-// 		http.Error(w, "Failed to serialize printer", http.StatusInternalServerError)
-// 		return
-// 	}
-
-// 	cmd := Command{
-// 		Op:   "add_printer",
-// 		Data: data,
-// 	}
-
-// 	cmdBytes, err := json.Marshal(cmd)
-// 	if err != nil {
-// 		http.Error(w, "Failed to serialize command", http.StatusInternalServerError)
-// 		return
-// 	}
-
-// 	// Submit command via Raft
-// 	applyFuture := node.raft.Apply(cmdBytes, 5*time.Second)
-// 	if err := applyFuture.Error(); err != nil {
-// 		http.Error(w, "Raft apply failed: "+err.Error(), http.StatusInternalServerError)
-// 		return
-// 	}
-
-// 	w.WriteHeader(http.StatusCreated)
-// 	fmt.Fprintf(w, "Printer %s added successfully\n", printer.ID)
-// }
-
-// // GET /printers
-// func getPrintersHandler(w http.ResponseWriter, r *http.Request) {
-// 	if r.Method != http.MethodGet {
-// 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-// 		return
-// 	}
-
-// 	node.fsm.mu.Lock()
-// 	defer node.fsm.mu.Unlock()
-
-// 	printers := make([]Printer, 0, len(node.fsm.Printers))
-// 	for _, p := range node.fsm.Printers {
-// 		printers = append(printers, p)
-// 	}
-
-// 	w.Header().Set("Content-Type", "application/json")
-// 	json.NewEncoder(w).Encode(printers)
-// }
 
 func printersHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
@@ -368,7 +307,7 @@ func handlePostPrintJob(raftNode *raft.Raft, fsm *RaftFSM) http.HandlerFunc {
 			Data: mustMarshal(job),
 		}
 		if err := applyRaftCommand(raftNode, cmd); err != nil {
-			http.Error(w, "Failed to commit job", http.StatusInternalServerError)
+			http.Error(w, "Raft apply failed: node is not the leader", http.StatusInternalServerError)
 			return
 		}
 		json.NewEncoder(w).Encode(job)
@@ -401,6 +340,79 @@ func applyRaftCommand(r *raft.Raft, cmd Command) error {
 	return f.Error()
 }
 
+func handleUpdatePrintJobStatus(raftNode *raft.Raft, fsm *RaftFSM) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		segments := strings.Split(r.URL.Path, "/")
+		if len(segments) < 3 {
+			http.Error(w, "Invalid URL path", http.StatusBadRequest)
+			return
+		}
+		jobID := segments[len(segments)-2]
+		statusParam := r.URL.Query().Get("status")
+		if statusParam == "" {
+			http.Error(w, "Missing status parameter", http.StatusBadRequest)
+			return
+		}
+
+		if statusParam != "running" && statusParam != "done" && statusParam != "canceled" {
+			http.Error(w, "Invalid status. Must be 'running', 'done', or 'canceled'", http.StatusBadRequest)
+			return
+		}
+
+		fsm.mu.Lock()
+		job, exists := fsm.PrintJobs[jobID]
+		if !exists {
+			fsm.mu.Unlock()
+			http.Error(w, "Print job not found", http.StatusNotFound)
+			return
+		}
+		currentStatus := job.Status
+		fsm.mu.Unlock() // defer behaving strange, re-look
+
+		validTransition := false // start with F instead of T
+		switch statusParam {
+		case "running":
+			validTransition = currentStatus == "Queued"
+		case "done":
+			validTransition = currentStatus == "Running"
+		case "canceled":
+			validTransition = currentStatus == "Queued" || currentStatus == "Running" // Last case
+		}
+
+		if !validTransition {
+			http.Error(w, fmt.Sprintf("Invalid status transition from '%s' to '%s'", currentStatus, statusParam), http.StatusBadRequest)
+			return
+		}
+
+		type StatusUpdate struct {
+			JobID  string `json:"job_id"`
+			Status string `json:"status"`
+		}
+
+		update := StatusUpdate{
+			JobID:  jobID,
+			Status: statusParam,
+		}
+
+		cmd := Command{
+			Op:   "update_print_job_status",
+			Data: mustMarshal(update),
+		}
+
+		if err := applyRaftCommand(raftNode, cmd); err != nil {
+			http.Error(w, "Failed to update job status", http.StatusInternalServerError)
+			return
+		}
+
+		fsm.mu.Lock() // Sec Lock
+		updatedJob := fsm.PrintJobs[jobID]
+		fsm.mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json") // *
+		json.NewEncoder(w).Encode(updatedJob)
+	}
+}
+
 func main() {
 	id := flag.String("id", "node1", "Unique ID of this node")
 	raftPort := flag.String("raftPort", "12000", "Raft communication port")
@@ -420,8 +432,6 @@ func main() {
 
 	http.HandleFunc("/", handler)
 	http.HandleFunc("/join", joinHandler)
-	// http.HandleFunc("/printers", addPrinterHandler)      // POST
-	// http.HandleFunc("/get_printers", getPrintersHandler) // GET
 	http.HandleFunc("/printers", printersHandler)
 	http.HandleFunc("/view_stats", viewStats)
 	http.HandleFunc("/leader", leaderHandler)
@@ -436,6 +446,23 @@ func main() {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
+	http.HandleFunc("/print_jobs/", func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		if strings.HasSuffix(path, "/status") && r.Method == "POST" {
+			handleUpdatePrintJobStatus(node.raft, node.fsm)(w, r)
+		} else if path == "/print_jobs" {
+			switch r.Method {
+			case "GET":
+				handleGetPrintJobs(node.fsm)(w, r)
+			case "POST":
+				handlePostPrintJob(node.raft, node.fsm)(w, r)
+			default:
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			}
+		} else {
+			http.Error(w, "Not found", http.StatusNotFound)
+		}
+	})
 
 	fmt.Printf("HTTP server starting on :%s ...\n", *httpPort)
 	err = http.ListenAndServe(":"+*httpPort, nil)
@@ -443,3 +470,5 @@ func main() {
 		log.Fatalf("HTTP server failed: %v", err)
 	}
 }
+
+// --- done ---

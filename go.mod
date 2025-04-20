@@ -3,6 +3,7 @@ module raft-kv-store
 go 1.24.1
 
 require (
+	github.com/google/uuid v1.6.0
 	github.com/hashicorp/raft v1.7.3
 	github.com/hashicorp/raft-boltdb v0.0.0-20250225060035-8f7048cdfa53
 )

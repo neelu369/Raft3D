@@ -16,7 +16,7 @@ type RaftFSM struct {
 	PrintJobs map[string]PrintJob
 }
 
-// --- FSM Initialization ---
+// FSM Initialization
 
 func NewFSM() *RaftFSM {
 	return &RaftFSM{
@@ -26,7 +26,7 @@ func NewFSM() *RaftFSM {
 	}
 }
 
-// --- Raft FSM Required Methods ---
+// Raft FSM Required Methods
 
 func (f *RaftFSM) Apply(logEntry *raft.Log) interface{} {
 	var cmd Command
@@ -56,6 +56,45 @@ func (f *RaftFSM) Apply(logEntry *raft.Log) interface{} {
 		}
 		f.PrintJobs[job.ID] = job
 		return nil
+	case "update_print_job_status":
+		var update struct {
+			JobID  string `json:"job_id"`
+			Status string `json:"status"`
+		}
+		if err := json.Unmarshal(cmd.Data, &update); err != nil {
+			return nil
+		}
+
+		job, exists := f.PrintJobs[update.JobID]
+		if !exists {
+			return nil
+		}
+
+		switch update.Status {
+		case "running":
+			job.Status = "Running"
+		case "done":
+			job.Status = "Done"
+		case "canceled":
+			job.Status = "Canceled"
+		default:
+			job.Status = update.Status // built-in fn deprecated
+		}
+
+		// If "Done",only then update the fil's remaining weight (updating from 'running' isn't right cuz it can be cancelled as well)
+		if job.Status == "Done" {
+			filament, exists := f.Filaments[job.FilamentID]
+			if exists {
+				filament.RemainingWeightInGrams -= job.PrintWeightInGrams
+				if filament.RemainingWeightInGrams < 0 {
+					filament.RemainingWeightInGrams = 0
+				}
+				f.Filaments[job.FilamentID] = filament
+			}
+		}
+
+		f.PrintJobs[update.JobID] = job
+		return job
 	}
 
 	return nil
@@ -107,7 +146,7 @@ func (f *RaftFSM) Restore(snapshot io.ReadCloser) error {
 	return nil
 }
 
-// --- Snapshot implementation ---
+// Snapshot implementation
 
 type fsmSnapshot struct {
 	state []byte
