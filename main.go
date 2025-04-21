@@ -436,6 +436,7 @@ func main() {
 	http.HandleFunc("/view_stats", viewStats)
 	http.HandleFunc("/leader", leaderHandler)
 	http.HandleFunc("/filaments", filamentHandler)
+	go periodicSnapshots(2 * time.Minute)
 	http.HandleFunc("/print_jobs", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case "GET":
@@ -468,6 +469,24 @@ func main() {
 	err = http.ListenAndServe(":"+*httpPort, nil)
 	if err != nil {
 		log.Fatalf("HTTP server failed: %v", err)
+	}
+}
+
+func periodicSnapshots(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		// Only trigger if leader
+		if node.raft.State() == raft.Leader {
+			log.Println("Taking periodic snapshot...")
+			future := node.raft.Snapshot()
+			if err := future.Error(); err != nil {
+				log.Printf("Failed to create periodic snapshot: %v", err)
+			} else {
+				log.Println("Periodic snapshot created successfully")
+			}
+		}
 	}
 }
 
